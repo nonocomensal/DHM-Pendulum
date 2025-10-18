@@ -1,0 +1,160 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+# Importa a função 'find_peaks'
+try:
+    from scipy.signal import find_peaks
+except ImportError:
+    print("A biblioteca 'scipy' é necessária. Instalando...")
+    import subprocess, sys
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "scipy"])
+        from scipy.signal import find_peaks
+    except Exception as e:
+        print(f"Falha ao instalar o scipy: {e}. Por favor, instale manualmente com: pip install scipy")
+        exit()
+
+# --- CARREGAR DADOS ---
+try:
+    df = pd.read_csv('dados_pendulo.csv', sep=';', decimal=',')
+except Exception:
+    try:
+        df = pd.read_csv('dados_pendulo.csv')
+    except Exception as e:
+        print(f"Erro fatal: Não foi possível ler o arquivo 'dados_pendulo.csv'. Verifique o arquivo. Erro: {e}")
+        exit()
+
+t = df['tempo']
+x = df['x']
+
+# --- PASSO 1: VERIFICAÇÃO VISUAL E MEDIDA MANUAL ---
+print("\n--- PASSO 1: MEDIDA MANUAL DO PERÍODO ---")
+print("Mostrando gráfico de dados brutos (x vs t).")
+print("INSTRUÇÃO: Olhe o gráfico, use o zoom se precisar, e anote o tempo (em segundos) entre dois picos.")
+print("FECHE O GRÁFICO PARA CONTINUAR...")
+
+plt.figure(figsize=(12, 6))
+plt.plot(t, x, 'b.', label='Dados Brutos (x)')
+plt.title('VERIFICAÇÃO: Meça o tempo (eixo X) entre dois picos')
+plt.xlabel('Tempo (s)')
+plt.ylabel('Posição x (pixels)')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# --- PASSO 2: ENTRADA MANUAL ---
+T_estimado_manual = 0.0
+while T_estimado_manual <= 0:
+    try:
+        T_estimado_manual = float(input("Qual é o tempo aproximado (em segundos) entre dois picos?: "))
+        if T_estimado_manual <= 0:
+            print("O valor deve ser positivo.")
+    except ValueError:
+        print("Entrada inválida. Por favor, digite um número.")
+
+print(f"Usando Período (T) estimado por você: {T_estimado_manual:.3f} s")
+
+# --- AJUSTE DA CURVA (PASSO 7) ---
+
+def mha_func(t, A, gamma, omega, phi, offset):
+    return A * np.exp(-gamma * t) * np.cos(omega * t + phi) + offset
+
+# --- ESTIMATIVAS INICIAIS (p0) USANDO SUA MEDIDA ---
+print("\nCalculando estimativas iniciais...")
+
+# Estimativas fáceis:
+A_inicial = (x.max() - x.min()) / 2
+offset_inicial = x.mean()
+
+# Estimativa de Omega (Frequência) - AGORA USANDO SEU VALOR
+omega_inicial = 2 * np.pi / T_estimado_manual
+
+# Estimativa de Gamma (Amortecimento)
+gamma_inicial = 0.01 
+
+# Estimativa de Phi (Fase)
+try:
+    valor_arccos = np.clip((x.iloc[0] - offset_inicial) / A_inicial, -1.0, 1.0)
+    phi_inicial = np.arccos(valor_arccos)
+    velocidade_inicial = (x.iloc[1] - x.iloc[0]) / (t.iloc[1] - t.iloc[0])
+    if velocidade_inicial > 0:
+         phi_inicial = 2 * np.pi - phi_inicial
+except Exception:
+    phi_inicial = 0
+
+p0 = [A_inicial, gamma_inicial, omega_inicial, phi_inicial, offset_inicial]
+print(f"\nEstimativas (p0) para o ajuste:")
+print(f"A ≈ {A_inicial:.2f}, γ ≈ {gamma_inicial:.3f}, ω ≈ {omega_inicial:.3f}, φ ≈ {phi_inicial:.3f}, offset ≈ {offset_inicial:.2f}")
+print("Tentando realizar o ajuste...")
+
+# --- TENTATIVA DE AJUSTE ---
+try:
+    params, covariance = curve_fit(mha_func, t, x, p0=p0, maxfev=10000)
+
+    print("\n--- SUCESSO! O AJUSTE FUNCIONOU ---")
+
+    A_fit, gamma_fit, omega_fit, phi_fit, offset_fit = params
+    erros = np.sqrt(np.diag(covariance))
+    A_err, gamma_err, omega_err, phi_err, offset_err = erros
+    
+    if A_fit < 0:
+        A_fit = -A_fit
+        phi_fit += np.pi
+    gamma_fit = abs(gamma_fit) 
+    omega_fit = abs(omega_fit)
+
+    print("\n--- RESULTADOS DO AJUSTE (OHA) ---")
+    print(f"Amplitude Inicial (A) = {A_fit:.2f} ± {A_err:.2f} pixels")
+    print(f"Const. de Amortecimento (γ) = {gamma_fit:.4f} ± {gamma_err:.4f} s⁻¹")
+    print(f"Frequência Angular (ω) = {omega_fit:.3f} ± {omega_err:.3f} rad/s")
+    print(f"Fase Inicial (φ) = {phi_fit:.3f} ± {phi_err:.3f} rad")
+    print(f"Ponto de Equilíbrio (offset) = {offset_fit:.2f} ± {offset_err:.2f} pixels")
+    
+    print("\n--- GRANDEZAS CALCULADAS ---")
+    if gamma_fit > 1e-6:
+        Q = omega_fit / (2 * gamma_fit)
+        erro_Q = Q * np.sqrt((omega_err / omega_fit)**2 + (gamma_err / gamma_fit)**2)
+        print(f"Fator de Qualidade (Q) = {Q:.1f} ± {erro_Q:.1f} (adimensional)")
+    else:
+        print("Fator de Qualidade (Q): Não foi possível calcular (γ muito próximo de zero).")
+
+    T_experimental = 2 * np.pi / omega_fit
+    T_err = T_experimental * (omega_err / omega_fit)
+    print(f"Período Experimental (T) = {T_experimental:.3f} ± {T_err:.3f} s")
+    print(f"(Sua estimativa manual foi de {T_estimado_manual:.3f} s. Bom trabalho!)")
+
+    # --- PLOT FINAL ---
+    print("Mostrando gráfico final com o ajuste...")
+    plt.figure(figsize=(12, 7))
+    plt.plot(t, x, 'b.', label='Dados Experimentais', markersize=4, alpha=0.5)
+    
+    t_fit = np.linspace(t.min(), t.max(), 1000)
+    x_fit = mha_func(t_fit, A_fit, gamma_fit, omega_fit, phi_fit, offset_fit)
+    
+    envelope_superior =  A_fit * np.exp(-gamma_fit * t_fit) + offset_fit
+    envelope_inferior = -A_fit * np.exp(-gamma_fit * t_fit) + offset_fit
+    plt.plot(t_fit, x_fit, 'r-', label='Ajuste OHA')
+    plt.plot(t_fit, envelope_superior, 'g--', label='Envelope de Amortecimento')
+    plt.plot(t_fit, envelope_inferior, 'g--')
+    
+    plt.title('Ajuste da Curva de Movimento Harmônico Amortecido (OHA)')
+    plt.xlabel('Tempo (s)')
+    plt.ylabel('Posição x (pixels)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+except RuntimeError:
+    print("\n" + "="*50)
+    print("O AJUSTE FALHOU MESMO COM A AJUDA MANUAL.")
+    print("="*50)
+    print("Isso é muito raro se os dados estão limpos.")
+    print("Possíveis causas:")
+    print("1. Sua estimativa do Período (T) estava muito errada.")
+    print("2. Os dados têm algum problema sutil (talvez o rastreador tenha pulado alguns frames?).")
+    print("Tente rodar de novo e ser bem preciso na medida do Período.")
+
+except Exception as e:
+    print(f"\nOcorreu um erro inesperado na análise: {e}")
