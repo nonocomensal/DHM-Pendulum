@@ -3,20 +3,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-# Importa a função 'find_peaks'
 try:
     from scipy.signal import find_peaks
 except ImportError:
-    print("A biblioteca 'scipy' é necessária. Instalando...")
     import subprocess, sys
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "scipy"])
         from scipy.signal import find_peaks
     except Exception as e:
-        print(f"Falha ao instalar o scipy: {e}. Por favor, instale manualmente com: pip install scipy")
         exit()
 
-# --- CARREGAR DADOS ---
 try:
     df = pd.read_csv('dados_pendulo.csv', sep=';', decimal=',')
 except Exception:
@@ -29,15 +25,13 @@ except Exception:
 t = df['tempo']
 x = df['x']
 
-# --- PASSO 1: VERIFICAÇÃO VISUAL E MEDIDA MANUAL ---
-print("\n--- PASSO 1: MEDIDA MANUAL DO PERÍODO ---")
 print("Mostrando gráfico de dados brutos (x vs t).")
-print("INSTRUÇÃO: Olhe o gráfico, use o zoom se precisar, e anote o tempo (em segundos) entre dois picos.")
+print("Olhe o gráfico, use o zoom se precisar, e anote o tempo (em segundos) entre dois picos.")
 print("FECHE O GRÁFICO PARA CONTINUAR...")
 
 plt.figure(figsize=(12, 6))
 plt.plot(t, x, 'b.', label='Dados Brutos (x)')
-plt.title('VERIFICAÇÃO: Meça o tempo (eixo X) entre dois picos')
+plt.title('Meça o tempo (eixo X) entre dois picos')
 plt.xlabel('Tempo (s)')
 plt.ylabel('Posição x (pixels)')
 plt.legend()
@@ -56,12 +50,9 @@ while T_estimado_manual <= 0:
 
 print(f"Usando Período (T) estimado por você: {T_estimado_manual:.3f} s")
 
-# --- AJUSTE DA CURVA (PASSO 7) ---
-
 def mha_func(t, A, gamma, omega, phi, offset):
     return A * np.exp(-gamma * t) * np.cos(omega * t + phi) + offset
 
-# --- ESTIMATIVAS INICIAIS (p0) USANDO SUA MEDIDA ---
 print("\nCalculando estimativas iniciais...")
 
 # Estimativas fáceis:
